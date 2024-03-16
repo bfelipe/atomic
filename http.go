@@ -2,25 +2,29 @@ package atomic
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 )
 
 type Request struct {
-	conn      net.Conn
 	frames    []string
-	StartLine string
-	Headers   map[string]string
-	Body      []byte
-	Method    string
-	Path      string
+	startLine string
+	headers   map[string]string
+	body      []byte
+	method    string
+	path      string
 }
 
-func (r *Request) parseFrames() error {
+func (r *Request) parseFrames(conn net.Conn) error {
 	buf := make([]byte, 1024)
-	if _, err := r.conn.Read(buf); err != nil {
-		return fmt.Errorf("Error while reading content %s\n", err)
+	numOfBytes, err := conn.Read(buf)
+	if err != nil {
+		if numOfBytes == 0 {
+			return errors.New("connection closed prematurely")
+		}
+		return fmt.Errorf("error while reading connection %s", err)
 	}
 	r.frames = strings.Split(string(buf), "\r\n")
 	return nil
@@ -28,38 +32,39 @@ func (r *Request) parseFrames() error {
 
 func (r *Request) parseStartLine() error {
 	if len(r.frames) == 0 {
-		return fmt.Errorf("Error while parsing StartLine, request has no frames")
+		return errors.New("request has no frames")
 	}
-	r.StartLine = r.frames[0]
-	parts := strings.SplitAfter(r.StartLine, " ")
+	r.startLine = r.frames[0]
+	parts := strings.SplitAfter(r.startLine, " ")
 	if len(parts) != 3 {
-		return fmt.Errorf("Invalid StarLine format %q", r.StartLine)
+		return fmt.Errorf("invalid start line format %v", r.startLine)
 	}
-	r.Method = strings.TrimSpace(parts[0])
-	r.Path = strings.TrimSpace(parts[1])
+	r.method = strings.TrimSpace(parts[0])
+	r.path = strings.TrimSpace(parts[1])
 	return nil
 }
 
 func (r *Request) parseHeaders() {
-	r.Headers = map[string]string{}
-	for _, header := range r.frames[1 : len(r.frames)-2] {
+	r.headers = map[string]string{}
+	for _, header := range r.frames[1:] {
 		pair := strings.Split(header, " ")
 		if len(pair) < 2 {
 			break
 		}
 		key := pair[0][:len(pair[0])-1]
-		r.Headers[key] = pair[1]
+		r.headers[key] = pair[1]
 	}
 }
 
 func (r *Request) parseBody() {
-	r.Body = []byte(r.frames[len(r.frames)-1])
-	r.Body = bytes.Trim(r.Body, "\x00")
+	if r.frames[len(r.frames)-1] != "" {
+		r.body = []byte(r.frames[len(r.frames)-1])
+		r.body = bytes.Trim(r.body, "\x00")
+	}
 }
 
 func (r *Request) Decode(conn net.Conn) error {
-	r.conn = conn
-	if err := r.parseFrames(); err != nil {
+	if err := r.parseFrames(conn); err != nil {
 		return err
 	}
 	if err := r.parseStartLine(); err != nil {
@@ -68,4 +73,24 @@ func (r *Request) Decode(conn net.Conn) error {
 	r.parseHeaders()
 	r.parseBody()
 	return nil
+}
+
+func (r Request) Body() []byte {
+	return r.body
+}
+
+func (r Request) Headers() map[string]string {
+	return r.headers
+}
+
+func (r Request) Header(key string) string {
+	return r.headers[key]
+}
+
+func (r Request) Method() string {
+	return r.method
+}
+
+func (r Request) Path() string {
+	return r.path
 }
