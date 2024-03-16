@@ -7,123 +7,157 @@ import (
 	"gitlab.com/bfelipe/atomic/mock"
 )
 
-/**
-
-    GET:
-		Empty request
-		StartLine without spaces
-		StartLine with missing parts
-        Invalid start line format.
-        Empty request.
-
-    POST:
-        Valid POST request with JSON payload and headers.
-        Valid POST request with form data and headers.
-        Missing content type header for non-empty body.
-        Invalid JSON payload.
-        Empty request.
-
-    PUT:
-        Valid PUT request with JSON payload and headers.
-        Valid PUT request with form data and headers.
-        Missing content type header for non-empty body.
-        Invalid JSON payload.
-        Empty request.
-
-    DELETE:
-        Valid DELETE request with headers and body (including empty body).
-        Missing headers but valid body.
-        Invalid start line format.
-        Empty request.
-
-    PATCH:
-        Valid PATCH request with JSON payload and headers.
-        Valid PATCH request with form data and headers.
-        Missing content type header for non-empty body.
-        Invalid JSON payload.
-        Empty request.
-
-
-**/
-
-func TestGetRequest(t *testing.T) {
+func TestRequest(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name         string
-		conn         string
-		expStartLine string
-		expHeaders   map[string]string
-		expBody      string
-		expReqMethod string
-		expReqPath   string
+	tests := []struct {
+		name                      string
+		conn                      string
+		expectedStartLine         string
+		expectedPath              string
+		expectedMethod            string
+		expectedHeaders           map[string]string
+		expectedBody              string
+		expectErr                 bool
+		expectedErrorMessage      string
+		expectInvalidStartLineErr bool
+		expectNoFramesErr         bool
 	}{
 		{
-			name:         "Valid GET request",
-			conn:         "GET /path HTTP/1.1\r\nHeader1: Value1\r\n\r\n",
-			expStartLine: "GET /path HTTP/1.1",
-			expHeaders:   map[string]string{"Header1": "Value1"},
-			expBody:      "",
-			expReqMethod: "GET",
-			expReqPath:   "/path",
+			name:              "Valid GET request",
+			conn:              "GET /path HTTP/1.1\r\nHeader1: Value1\r\n\r\n",
+			expectedStartLine: "GET /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "GET",
+			expectedHeaders:   map[string]string{"Header1": "Value1"},
+			expectErr:         false,
 		},
 		{
-			name:         "Missing Headers",
-			conn:         "GET /path HTTP/1.1\r\n\r\n\r\n",
-			expStartLine: "GET /path HTTP/1.1",
-			expHeaders:   nil,
-			expBody:      "",
-			expReqMethod: "GET",
-			expReqPath:   "/path",
+			name:              "Valid POST request",
+			conn:              "POST /path HTTP/1.1\r\nHeader1: Value1\r\n\r\nbody message",
+			expectedStartLine: "POST /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "POST",
+			expectedHeaders:   map[string]string{"Header1": "Value1"},
+			expectedBody:      "body message",
+			expectErr:         false,
 		},
 		{
-			name:         "Invalid StartLine",
-			conn:         "Invalid",
-			expReqMethod: "",
-			expReqPath:   "",
+			name:              "Valid PUT request",
+			conn:              "PUT /path HTTP/1.1\r\nHeader1: Value1\r\n\r\nbody message",
+			expectedStartLine: "PUT /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "PUT",
+			expectedHeaders:   map[string]string{"Header1": "Value1"},
+			expectedBody:      "body message",
+			expectErr:         false,
+		},
+		{
+			name:              "Valid DELETE request",
+			conn:              "DELETE /path HTTP/1.1\r\nHeader1: Value1\r\n\r\n",
+			expectedStartLine: "DELETE /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "DELETE",
+			expectedHeaders:   map[string]string{"Header1": "Value1"},
+			expectErr:         false,
+		},
+		{
+			name:              "Valid PATCH request",
+			conn:              "PATCH /path HTTP/1.1\r\nHeader1: Value1\r\n\r\nbody message",
+			expectedStartLine: "PATCH /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "PATCH",
+			expectedHeaders:   map[string]string{"Header1": "Value1"},
+			expectedBody:      "body message",
+			expectErr:         false,
+		},
+		{
+			name:              "Missing headers",
+			conn:              "GET /path HTTP/1.1\r\n\r\n",
+			expectedStartLine: "GET /path HTTP/1.1",
+			expectedPath:      "/path",
+			expectedMethod:    "GET",
+			expectedHeaders:   nil,
+			expectErr:         false,
+		},
+		{
+			name:                      "Empty conn",
+			conn:                      "",
+			expectedErrorMessage:      "invalid start line format",
+			expectErr:                 true,
+			expectInvalidStartLineErr: true,
+		},
+		{
+			name:                      "Invalid start line format",
+			conn:                      " GET  /path  \r\nHeader1: Value1\r\n\r\n",
+			expectedErrorMessage:      "invalid start line format",
+			expectErr:                 true,
+			expectInvalidStartLineErr: true,
+		},
+		{
+			name:                      "Start line without spaces",
+			conn:                      "GET/pathHTTP/1.1\r\n\r\n",
+			expectedErrorMessage:      "invalid start line format",
+			expectErr:                 true,
+			expectInvalidStartLineErr: true,
 		},
 	}
 
-	for _, tc := range cases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			conn := mock.NewMockConn(tc.conn)
-			req := atomic.Request{}
-			req.Decode(conn)
+			var req atomic.Request
+			err := req.Decode(conn)
 
-			if req.StartLine != tc.expStartLine {
-				t.Errorf("Unexpected StartLine got %q want %q", req.StartLine, tc.expStartLine)
+			if tc.expectErr && err == nil {
+				t.Error("expected an error, but got none")
 				return
 			}
 
-			if tc.expHeaders != nil {
-				if req.Headers == nil {
-					t.Errorf("Unexpected Header got %q want %q", req.Headers, tc.expHeaders)
-					return
-				}
-				for k, _ := range tc.expHeaders {
-					if tc.expHeaders[k] != req.Headers[k] {
-						t.Errorf("Unexpected Header %q got %q want %q", k, req.Headers[k], tc.expHeaders[k])
-						return
+			if !tc.expectErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if tc.expectErr {
+				if tc.expectInvalidStartLineErr == true {
+					if err.Error() != tc.expectedErrorMessage {
+						t.Errorf("unexpected error got: %v expected: %v", err.Error(), tc.expectedErrorMessage)
 					}
 				}
-			}
-
-			reqBody := string(req.Body)
-			if reqBody != tc.expBody {
-				t.Errorf("Unexpected Body got %q want %q", reqBody, tc.expBody)
 				return
 			}
 
-			if req.Method != tc.expReqMethod {
-				t.Errorf("Unexpected Request Method got %q want %q", req.Method, tc.expReqMethod)
-				return
-			}
+			if !tc.expectErr {
+				if req.StartLine() != tc.expectedStartLine {
+					t.Errorf("unexpected start line got: %v expected: %v", req.StartLine(), tc.expectedStartLine)
+					return
+				}
 
-			if req.Path != tc.expReqPath {
-				t.Errorf("Unexpected Request Path got %q want %q", req.Path, tc.expReqPath)
-				return
-			}
+				if req.Path() != tc.expectedPath {
+					t.Errorf("unexpected path got: %v expected: %v", req.Path(), tc.expectedPath)
+					return
+				}
 
+				if req.Method() != tc.expectedMethod {
+					t.Errorf("unexpected method got: %v expected: %v", req.Method(), tc.expectedMethod)
+					return
+				}
+
+				if len(tc.expectedHeaders) > 0 {
+					for k, v := range req.Headers() {
+						if req.Header(k) != v {
+							t.Errorf("unexpected header %v got: %v expected: %v", k, req.Header(k), tc.expectedHeaders[k])
+							return
+						}
+					}
+				}
+
+				if string(req.Body()) != tc.expectedBody {
+					t.Errorf("unexpected body got: %v expected: %v", string(req.Body()), tc.expectedPath)
+					return
+				}
+			}
 		})
 	}
 }

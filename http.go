@@ -37,7 +37,7 @@ func (r *Request) parseStartLine() error {
 	r.startLine = r.frames[0]
 	parts := strings.SplitAfter(r.startLine, " ")
 	if len(parts) != 3 {
-		return fmt.Errorf("invalid start line format %v", r.startLine)
+		return errors.New("invalid start line format")
 	}
 	r.method = strings.TrimSpace(parts[0])
 	r.path = strings.TrimSpace(parts[1])
@@ -93,4 +93,8 @@ func (r Request) Method() string {
 
 func (r Request) Path() string {
 	return r.path
+}
+
+func (r Request) StartLine() string {
+	return r.startLine
 }

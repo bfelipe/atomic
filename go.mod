@@ -1,3 +1,3 @@
 module gitlab.com/bfelipe/atomic
 
-go 1.21.6
+go 1.22.1
