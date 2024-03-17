@@ -1,50 +1,38 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"log"
 	"net"
-	"time"
 
 	"gitlab.com/bfelipe/atomic"
 )
 
-type Product struct {
-	ID    int     `json:"id"`
-	Name  string  `json:"name"`
-	Price float64 `json:"price"`
-}
-
-type User struct {
-	ID       int    `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-}
-
-type Record struct {
-	User      User      `json:"user"`
-	Products  []Product `json:"products"`
-	Status    string    `json:"status"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
 func handle(conn net.Conn) {
-	defer conn.Close()
-	req := atomic.Request{}
-	req.Decode(conn)
-
-	for k, v := range req.Headers {
-		fmt.Printf("%s: %s\n", k, v)
+	var req atomic.Request
+	if err := req.Decode(conn); err != nil {
+		log.Fatalf("unable to decode connection %s", err)
 	}
 
-	r := Record{}
-	err := json.Unmarshal(req.Body, &r)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+	log.Print("Request Headers")
+	for k, v := range req.Headers() {
+		log.Printf("%s: %s\n", k, v)
+	}
+	log.Printf("Request body %s", string(req.Body()))
+
+	var resp atomic.Response
+	resp.SetStatusCode(atomic.OK)
+	resp.SetHeader("request-id", "123")
+	resp.SetBody(string(req.Body()), "text/plain")
+	log.Printf("Response %s", resp.String())
+
+	if _, err := conn.Write(resp.Enconde()); err != nil {
+		log.Fatalf("unable to write response %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		log.Fatalf("unable to close connection %v", err)
 	}
 
-	return
 }
 
 func main() {
